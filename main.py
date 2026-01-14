@@ -7,6 +7,7 @@ Requires: pip install rich requests
 import requests
 import json
 import sys
+from datetime import datetime
 from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
@@ -14,11 +15,26 @@ from rich.prompt import Prompt
 from rich.live import Live
 from rich.spinner import Spinner
 from rich.text import Text
+from rich.table import Table
+from rich.layout import Layout
+from rich.align import Align
+from rich import box
 
 console = Console()
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL = "gemma3:12b"  # Change this to your preferred model
+MODEL = "gemma3:12b"
+
+# Color scheme
+COLORS = {
+    "primary": "cyan",
+    "secondary": "blue",
+    "success": "green",
+    "warning": "yellow",
+    "error": "red",
+    "muted": "dim white",
+    "highlight": "bright_cyan"
+}
 
 def check_ollama():
     """Check if Ollama is running"""
@@ -51,7 +67,7 @@ def ask_ollama(prompt, stream=True):
         else:
             return response.json().get("response", "")
     except Exception as e:
-        console.print(f"[red]Error connecting to Ollama: {e}[/red]")
+        console.print(f"[{COLORS['error']}]✗ Error connecting to Ollama: {e}[/{COLORS['error']}]")
         return None
 
 def format_tutorial_prompt(command, conversation_history=""):
@@ -99,34 +115,177 @@ Follow-up question: {followup_question}
 
 Provide a helpful, concise answer that builds on the previous context. Use markdown formatting where appropriate."""
 
+def create_header():
+    """Create an attractive header"""
+    header_text = Text()
+    header_text.append("╔═══════════════════════════════════════════════════════════╗\n", style="cyan")
+    header_text.append("║  ", style="cyan")
+    header_text.append("🐧 Linux Command Helper", style="bold bright_cyan")
+    header_text.append("  ", style="cyan")
+    header_text.append("─", style="dim cyan")
+    header_text.append("  Learn. Explore. Master.  ", style="italic cyan")
+    header_text.append(" ║\n", style="cyan")
+    header_text.append("╚═══════════════════════════════════════════════════════════╝", style="cyan")
+    return header_text
+
+def create_command_table():
+    """Create a table of available commands"""
+    table = Table(
+        show_header=True,
+        header_style=f"bold {COLORS['primary']}",
+        border_style=COLORS['primary'],
+        box=box.ROUNDED,
+        padding=(0, 1)
+    )
+    
+    table.add_column("Command", style=COLORS['highlight'], width=20)
+    table.add_column("Description", style="white")
+    table.add_column("Example", style=COLORS['muted'])
+    
+    table.add_row(
+        "tutorial <cmd>",
+        "Learn about a command",
+        "tutorial grep"
+    )
+    table.add_row(
+        "steps <task>",
+        "Get step-by-step guide",
+        "steps setup nginx"
+    )
+    table.add_row(
+        "<question>",
+        "Ask follow-up questions",
+        "what about permissions?"
+    )
+    table.add_row(
+        "clear",
+        "Clear the screen",
+        "clear"
+    )
+    table.add_row(
+        "help",
+        "Show this help",
+        "help"
+    )
+    table.add_row(
+        "quit / exit",
+        "Exit the program",
+        "quit"
+    )
+    
+    return table
+
 def show_welcome():
-    """Display welcome screen"""
-    welcome = """
-# Linux Command Helper 🐧
+    """Display enhanced welcome screen"""
+    console.print("\n")
+    console.print(create_header())
+    console.print()
+    
+    # Quick tips
+    tips_panel = Panel(
+        "[dim]💡 Tip: Start with 'tutorial <command>' or 'steps <task>', then ask follow-ups![/dim]",
+        border_style=COLORS['secondary'],
+        box=box.ROUNDED
+    )
+    console.print(tips_panel)
+    console.print()
+    
+    # Commands table
+    console.print(create_command_table())
+    console.print()
 
-**Interactive TUI for learning Linux commands**
+def show_context_bar(context):
+    """Show current conversation context"""
+    if context["mode"] and context["topic"]:
+        context_text = Text()
+        context_text.append("┃ ", style=COLORS['primary'])
+        context_text.append("Context: ", style="dim")
+        context_text.append(f"{context['mode'].title()}", style=f"bold {COLORS['highlight']}")
+        context_text.append(" → ", style="dim")
+        context_text.append(f"{context['topic']}", style=COLORS['success'])
+        context_text.append(" ┃", style=COLORS['primary'])
+        return Panel(
+            context_text,
+            border_style=COLORS['primary'],
+            box=box.ROUNDED,
+            padding=(0, 1)
+        )
+    return None
 
-Available modes:
-- `tutorial <command>` - Get a tutorial for a specific command
-- `steps <task>` - Get step-by-step instructions for a task
-- `help` - Show this help
-- `quit` or `exit` - Exit the program
+def show_thinking_animation(text="Processing your request"):
+    """Create an enhanced loading animation"""
+    spinners = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    return Spinner("dots", text=f"[{COLORS['primary']}]{text}...[/{COLORS['primary']}]", style=COLORS['primary'])
 
-Examples:
-- `tutorial grep`
-- `steps configure ssh server`
-"""
-    console.print(Panel(Markdown(welcome), border_style="cyan"))
+def format_response_panel(content, title, mode):
+    """Format response with appropriate styling"""
+    # Choose icon based on mode
+    icons = {
+        "tutorial": "📚",
+        "steps": "📋",
+        "followup": "💬"
+    }
+    icon = icons.get(mode, "💡")
+    
+    # Create title with icon
+    panel_title = f"{icon} {title}"
+    
+    return Panel(
+        Markdown(content),
+        title=panel_title,
+        title_align="left",
+        border_style=COLORS['success'],
+        box=box.ROUNDED,
+        padding=(1, 2)
+    )
+
+def show_error(message):
+    """Display error message"""
+    error_text = Text()
+    error_text.append("✗ ", style=f"bold {COLORS['error']}")
+    error_text.append(message, style=COLORS['error'])
+    
+    console.print(Panel(
+        error_text,
+        border_style=COLORS['error'],
+        box=box.ROUNDED
+    ))
+
+def show_info(message):
+    """Display info message"""
+    info_text = Text()
+    info_text.append("ℹ ", style=f"bold {COLORS['primary']}")
+    info_text.append(message, style=COLORS['primary'])
+    
+    console.print(Panel(
+        info_text,
+        border_style=COLORS['primary'],
+        box=box.ROUNDED
+    ))
+
+def show_success(message):
+    """Display success message"""
+    success_text = Text()
+    success_text.append("✓ ", style=f"bold {COLORS['success']}")
+    success_text.append(message, style=COLORS['success'])
+    
+    console.print(Panel(
+        success_text,
+        border_style=COLORS['success'],
+        box=box.ROUNDED
+    ))
 
 def main():
     """Main program loop"""
     console.clear()
     
-    # Check Ollama connection
+    # Check Ollama connection with styled message
+    console.print(f"\n[{COLORS['primary']}]⟳ Connecting to Ollama...[/{COLORS['primary']}]", end="")
     if not check_ollama():
-        console.print("[red]Error: Cannot connect to Ollama at http://localhost:11434[/red]")
-        console.print("Make sure Ollama is running: [cyan]ollama serve[/cyan]")
+        console.print(f" [{COLORS['error']}]✗[/{COLORS['error']}]")
+        show_error("Cannot connect to Ollama at http://localhost:11434\nMake sure Ollama is running: ollama serve")
         sys.exit(1)
+    console.print(f" [{COLORS['success']}]✓[/{COLORS['success']}]")
     
     show_welcome()
     
@@ -135,86 +294,105 @@ def main():
     
     while True:
         try:
-            # Get user input
-            user_input = Prompt.ask("\n[bold cyan]λ[/bold cyan]").strip()
+            # Show context if available
+            context_panel = show_context_bar(current_context)
+            if context_panel:
+                console.print(context_panel)
+            
+            # Enhanced prompt with color
+            prompt_text = Text()
+            prompt_text.append("┌─[", style=COLORS['primary'])
+            prompt_text.append("λ", style=f"bold {COLORS['highlight']}")
+            prompt_text.append("]", style=COLORS['primary'])
+            console.print(prompt_text)
+            
+            user_input = Prompt.ask(
+                f"[{COLORS['primary']}]└─▶[/{COLORS['primary']}]",
+                default=""
+            ).strip()
             
             if not user_input:
                 continue
             
             if user_input.lower() in ["quit", "exit", "q"]:
-                console.print("[yellow]Goodbye! 👋[/yellow]")
+                console.print(f"\n[{COLORS['warning']}]👋 Thanks for using Linux Command Helper! Happy learning![/{COLORS['warning']}]\n")
                 break
             
-            if user_input.lower() == "help":
+            if user_input.lower() == "clear":
+                console.clear()
                 show_welcome()
                 continue
             
-            # Check if it's a follow-up question (no mode prefix)
+            if user_input.lower() == "help":
+                console.clear()
+                show_welcome()
+                continue
+            
+            # Check if it's a follow-up question
             is_followup = False
             
             # Parse command
             parts = user_input.split(maxsplit=1)
             if len(parts) < 2:
-                # Check if this could be a follow-up to existing context
                 if current_context["mode"] and current_context["topic"]:
                     is_followup = True
                     query = user_input
                 else:
-                    console.print("[yellow]Please specify a command or task. Try 'help' for examples.[/yellow]")
+                    show_info("Please specify a command or task. Try 'help' for examples.")
                     continue
             else:
                 mode, query = parts[0].lower(), parts[1]
                 
-                # Check if it's a follow-up (no mode prefix detected)
                 if mode not in ["tutorial", "steps", "step"]:
                     if current_context["mode"] and current_context["topic"]:
-                        # Treat the whole input as follow-up
                         is_followup = True
                         query = user_input
                     else:
-                        console.print(f"[yellow]Unknown mode '{mode}'. Use 'tutorial', 'steps', or ask a follow-up question.[/yellow]")
+                        show_error(f"Unknown mode '{mode}'. Use 'tutorial', 'steps', or ask a follow-up question.")
                         continue
             
             # Generate appropriate prompt
             if is_followup:
                 prompt = format_followup_prompt(current_context["history"], query)
-                title = f"Follow-up: {query}"
+                title = query[:50] + "..." if len(query) > 50 else query
+                response_mode = "followup"
             elif mode == "tutorial":
                 prompt = format_tutorial_prompt(query)
                 title = f"Tutorial: {query}"
+                response_mode = "tutorial"
                 current_context = {"mode": "tutorial", "topic": query, "history": ""}
             elif mode in ["steps", "step"]:
                 prompt = format_stepbystep_prompt(query)
                 title = f"Steps: {query}"
+                response_mode = "steps"
                 current_context = {"mode": "steps", "topic": query, "history": ""}
-            else:
-                console.print(f"[yellow]Unknown mode '{mode}'. Use 'tutorial' or 'steps'.[/yellow]")
-                continue
             
             # Show loading indicator and get response
             console.print()
             full_response = ""
             
-            with Live(Spinner("dots", text="Thinking..."), console=console, refresh_per_second=10):
+            with Live(show_thinking_animation(), console=console, refresh_per_second=10):
                 for chunk in ask_ollama(prompt):
                     full_response += chunk
             
             # Display response
             if full_response:
-                console.print(Panel(Markdown(full_response), title=title, border_style="green"))
+                console.print(format_response_panel(full_response, title, response_mode))
                 
                 # Update conversation history
                 if current_context["history"]:
                     current_context["history"] += f"\nUser: {query}\nAssistant: {full_response}\n"
                 else:
                     current_context["history"] = f"Topic: {current_context['topic']}\nUser: {query}\nAssistant: {full_response}\n"
+                
+                console.print()
             else:
-                console.print("[red]No response received from Ollama[/red]")
+                show_error("No response received from Ollama. Please try again.")
                 
         except KeyboardInterrupt:
-            console.print("\n[yellow]Use 'quit' or 'exit' to leave[/yellow]")
+            console.print(f"\n[{COLORS['warning']}]⚠ Interrupted. Use 'quit' or 'exit' to leave[/{COLORS['warning']}]")
         except Exception as e:
-            console.print(f"[red]Error: {e}[/red]")
+            show_error(f"Unexpected error: {e}")
 
 if __name__ == "__main__":
     main()
